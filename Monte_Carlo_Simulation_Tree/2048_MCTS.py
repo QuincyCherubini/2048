@@ -19,7 +19,7 @@ class Node:
         self.move = move
 
     def get_UCB(self):
-        UCB = self.tot_reward/self.visits + self.expansion*math.sqrt(math.log2(self.parent.visits) / self.visits)
+        UCB = self.tot_reward/self.visits - self.state.score + self.expansion*math.sqrt(math.log2(self.parent.visits) / self.visits)
         return UCB
 
     def is_leaf(self):
@@ -192,7 +192,7 @@ def take_next_step(test_node):
             test_node.rollout()
 
 
-def expand_node(test_node, time_start, max_time):
+def expand_node(test_node, time_start, max_time, max_sims):
 
     # if the test_node is a leaf expand it
     if test_node.is_leaf():
@@ -203,7 +203,9 @@ def expand_node(test_node, time_start, max_time):
         if child.is_unchecked():
             child.rollout()
 
-    while time.time() - time_start <= max_time:
+    total_visits = 0
+
+    while time.time() - time_start <= max_time and test_node.visits < max_sims:
 
         to_exp_child_ind = test_node.get_max_child_UCB()
 
@@ -213,8 +215,10 @@ def expand_node(test_node, time_start, max_time):
         else:
             break
 
+    # print(sims)
 
-def run(exploration_num, max_time, max_turns):
+
+def run(exploration_num, max_time, max_turns, max_sims):
 
     # Create a new board and display it
     test_board = board()
@@ -229,7 +233,7 @@ def run(exploration_num, max_time, max_turns):
 
         # expand the tree while I have time
         time_start = time.time()
-        expand_node(test_node, time_start, max_time)
+        expand_node(test_node, time_start, max_time, max_sims)
 
         # pick the next best move
         next_move = test_node.get_best_move()
@@ -243,11 +247,12 @@ def run(exploration_num, max_time, max_turns):
         elif next_move == 3:
             move = "up"
 
-        print(" turn: {} action: {} move: {}".format(turns, next_move, move))
+        print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
         counter = 0
         for child in test_node.children:
-            print("child {} visits: {} total: {} avg: {}".format(child.move, child.visits, child.tot_reward, child.tot_reward/child.visits))
+            print("child {} visits: {} total: {} avg: {} UCB: {}".format(child.move, child.visits, child.tot_reward,
+                                            child.tot_reward/child.visits - test_board.score, child.get_UCB()))
             counter += 1
 
         # Make the move
@@ -260,9 +265,10 @@ def run(exploration_num, max_time, max_turns):
 if __name__ == "__main__":
     pr = cProfile.Profile()
     pr.enable()
-    exploration_num = 750
-    max_time = 1  # in seconds
-    max_turns = 9999999
-    run(exploration_num, max_time, max_turns)
+    exploration_num = 750  # todo: is this the best number?
+    max_time = .5  # in seconds
+    max_turns = 9999999  # this is used for Testing purposes only
+    max_sims = 500  #
+    run(exploration_num, max_time, max_turns, max_sims)
     pr.disable()
     pr.print_stats()

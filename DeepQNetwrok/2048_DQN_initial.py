@@ -55,6 +55,7 @@ class DQN:
             else:
                 Q_future = max(self.target_model.predict(new_state)[0])
                 target[0][action] = reward + Q_future * self.gamma
+                print("target: {}".format(target))
             self.model.fit(state, target, epochs=1, verbose=0)
 
     def target_train(self):
