@@ -4,10 +4,14 @@ import math
 import time
 import random
 import cProfile
+import keras
+from keras.models import load_model
+from DQN import DQN
+from DQN import create_state
 
 class Node:
 
-    def __init__(self, state, player_turn, move=9, parent=None, expansion=2):
+    def __init__(self, state, player_turn, DQN, move=9, parent=None, expansion=2):
 
         self.state = state  # this is a board
         self.parent = parent  # this is a node
@@ -17,13 +21,12 @@ class Node:
         self.expansion = expansion
         self.player_turn = player_turn
         self.move = move
+        self.DQN = DQN
 
     def get_UCB(self):
-        child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
-        par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)
-        exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
-
-        UCB = int(child_avg1 + par_avg1*exp_ind1)
+        #todo: can I make expansion relative to total reward?
+        # UCB = self.tot_reward/self.visits - self.state.score + self.expansion*math.sqrt(math.log2(self.parent.visits) / self.visits)
+        UCB = (self.tot_reward / self.visits) - self.state.score + abs((self.parent.tot_reward / self.parent.visits) / 1.5) * math.sqrt(math.log2(self.parent.visits) / self.visits)
         return UCB
 
     def is_leaf(self):
@@ -92,21 +95,21 @@ class Node:
             for y in [0, 1, 2, 3]:
                 temp_board.tiles[x][y] = self.state.tiles[x][y]
 
-        # add a random tile if the player is 1
+        # todo: add a random tile here if the player is 1
         if self.player_turn == 1:
             temp_board.add_new_tile()
 
         while True:
 
             # if the game is over exit the loop and back prop
-            if temp_board.game_is_over():  # or turn_count == 30:
+            if temp_board.game_is_over():
                 self.back_prop(temp_board.score)
                 break
 
-            # otherwise perform a random legal move
-            move = random.getrandbits(2)
-            while not temp_board.is_valid_move(move):
-                move = (move + 1) % 4
+            # otherwise call the DQN and perform the best move
+            cur_state = create_state(temp_board)
+            cur_state = cur_state.reshape(1, self.DQN.state_shape[1])
+            move = self.DQN.act(cur_state)
 
             temp_board.move_tiles(move)
             temp_board.add_new_tile()
@@ -128,7 +131,7 @@ class Node:
                             temp_board.tiles[x][y] = test_board.tiles[x][y]
                     temp_board.move_tiles(move)
 
-                    child = Node(temp_board, 2, move, self, self.expansion)
+                    child = Node(temp_board, 2, self.DQN, move, self, self.expansion)
                     self.children.append(child)
 
         # add random tile to each spot
@@ -153,8 +156,8 @@ class Node:
                         temp_board_2.tiles[x][y] = 2
                         temp_board_4.tiles[x][y] = 4
 
-                        child_2 = Node(temp_board_2, 1, 9, self, self.expansion)
-                        child_4 = Node(temp_board_4, 1, 9, self, self.expansion)
+                        child_2 = Node(temp_board_2, 1, self.DQN, 9, self, self.expansion)
+                        child_4 = Node(temp_board_4, 1, self.DQN, 9, self, self.expansion)
 
                         self.children.append(child_2)
                         self.children.append(child_4)
@@ -164,11 +167,18 @@ class Node:
 
         max_visits = 0
         max_move = 9
+        max_score = 0
 
         for child in self.children:
             if child.visits > max_visits:
                 max_visits = child.visits
                 max_move = child.move
+                max_score = child.tot_reward/child.visits
+            elif child.visits == max_visits:
+                if child.tot_reward/child.visits > max_score:
+                    max_visits = child.visits
+                    max_move = child.move
+                    max_score = child.tot_reward / child.visits
 
         if max_move != 9:
             return max_move
@@ -185,6 +195,7 @@ def take_next_step(test_node):
         test_node.expand()
 
     # check if any of the children are unexplored, if so explore them
+    # todo: maybe instead of doing a full roll out on each "oppenent" move use the result of the DQN instead?
     all_children_checked = True
     for child in test_node.children:
         if child.is_unchecked():
@@ -221,21 +232,23 @@ def expand_node(test_node, time_start, max_time, max_sims):
         else:
             break
 
-    # print(sims)
 
-
-def run(exploration_num, max_time, max_turns, max_sims):
+def run(exploration_num, max_time, max_turns, max_sims, model):
 
     # Create a new board and display it
     test_board = board()
     test_board.display()
+
+    # Load the NN from DQN
+    DQN_agent = DQN(test_board)
+    DQN_agent.model = model
 
     turns = 0
     while not test_board.game_is_over() and turns < max_turns:
 
         # get node
         # create a new node based on the board
-        test_node = Node(test_board, 1, 9, None, exploration_num)
+        test_node = Node(test_board, 1, DQN_agent, 9, None, exploration_num)
 
         # expand the tree while I have time
         time_start = time.time()
@@ -253,10 +266,18 @@ def run(exploration_num, max_time, max_turns, max_sims):
         elif next_move == 3:
             move = "up"
 
+        # Test what my Q prediction is
+        cur_state = create_state(test_board)
+        cur_state = cur_state.reshape(1, DQN_agent.state_shape[1])
+        prediction = DQN_agent.model.predict(cur_state)[0]
+        print("prediction: {}".format(prediction))
+        # move = self.DQN.act(cur_state)
+
         print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
         for child in test_node.children:
-            print("child: {} visits: {} avg: {} UCB_act: {}".format(child.move, child.visits, child_avg, int(child.get_UCB())))
+            print("child {} visits: {} avg: {} UCB: {}".format(child.move, child.visits,
+                        int(child.tot_reward/child.visits - test_board.score), int(child.get_UCB())))
 
         # Make the move
         test_board.move_tiles(next_move)
@@ -266,12 +287,13 @@ def run(exploration_num, max_time, max_turns, max_sims):
 
 
 if __name__ == "__main__":
-    # pr = cProfile.Profile()
-    # pr.enable()
+    pr = cProfile.Profile()
+    pr.enable()
     exploration_num = 750  # todo: is this the best number?
-    max_time = .5  # in seconds
+    max_time = 30  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
-    max_sims = 5000  #
-    run(exploration_num, max_time, max_turns, max_sims)
-    # pr.disable()
-    # pr.print_stats()
+    max_sims = 1000  # maximum number of DQN simulations performed
+    model = keras.models.load_model("./trial-3002--3486.model")  # load the DQN model from the save file
+    run(exploration_num, max_time, max_turns, max_sims, model)
+    pr.disable()
+    pr.print_stats()
