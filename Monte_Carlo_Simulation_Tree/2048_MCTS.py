@@ -7,14 +7,13 @@ import cProfile
 
 class Node:
 
-    def __init__(self, state, player_turn, move=9, parent=None, expansion=2):
+    def __init__(self, state, player_turn, move=9, parent=None):
 
         self.state = state  # this is a board
         self.parent = parent  # this is a node
         self.children = []  # this is a list of nodes
         self.visits = 0
         self.tot_reward = 0
-        self.expansion = expansion
         self.player_turn = player_turn
         self.move = move
 
@@ -128,7 +127,7 @@ class Node:
                             temp_board.tiles[x][y] = test_board.tiles[x][y]
                     temp_board.move_tiles(move)
 
-                    child = Node(temp_board, 2, move, self, self.expansion)
+                    child = Node(temp_board, 2, move, self)
                     self.children.append(child)
 
         # add random tile to each spot
@@ -153,8 +152,8 @@ class Node:
                         temp_board_2.tiles[x][y] = 2
                         temp_board_4.tiles[x][y] = 4
 
-                        child_2 = Node(temp_board_2, 1, 9, self, self.expansion)
-                        child_4 = Node(temp_board_4, 1, 9, self, self.expansion)
+                        child_2 = Node(temp_board_2, 1, 9, self)
+                        child_4 = Node(temp_board_4, 1, 9, self)
 
                         self.children.append(child_2)
                         self.children.append(child_4)
@@ -224,7 +223,7 @@ def expand_node(test_node, time_start, max_time, max_sims):
     # print(sims)
 
 
-def run(exploration_num, max_time, max_turns, max_sims):
+def run(max_time, max_turns, max_sims):
 
     # Create a new board and display it
     test_board = board()
@@ -233,9 +232,8 @@ def run(exploration_num, max_time, max_turns, max_sims):
     turns = 0
     while not test_board.game_is_over() and turns < max_turns:
 
-        # get node
         # create a new node based on the board
-        test_node = Node(test_board, 1, 9, None, exploration_num)
+        test_node = Node(test_board, 1, 9, None)
 
         # expand the tree while I have time
         time_start = time.time()
@@ -256,7 +254,7 @@ def run(exploration_num, max_time, max_turns, max_sims):
         print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
         for child in test_node.children:
-            print("child: {} visits: {} avg: {} UCB_act: {}".format(child.move, child.visits, child_avg, int(child.get_UCB())))
+            print("child: {} visits: {} avg: {} UCB_act: {}".format(child.move, child.visits, int(child.tot_reward/child.visits - test_board.score), int(child.get_UCB())))
 
         # Make the move
         test_board.move_tiles(next_move)
@@ -268,10 +266,9 @@ def run(exploration_num, max_time, max_turns, max_sims):
 if __name__ == "__main__":
     # pr = cProfile.Profile()
     # pr.enable()
-    exploration_num = 750  # todo: is this the best number?
     max_time = .5  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
-    max_sims = 5000  #
-    run(exploration_num, max_time, max_turns, max_sims)
+    max_sims = 750  # cut the number of simulations when a bench mark is reached
+    run(max_time, max_turns, max_sims)
     # pr.disable()
     # pr.print_stats()

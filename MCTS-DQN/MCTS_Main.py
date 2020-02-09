@@ -24,9 +24,11 @@ class Node:
         self.DQN = DQN
 
     def get_UCB(self):
-        #todo: can I make expansion relative to total reward?
-        # UCB = self.tot_reward/self.visits - self.state.score + self.expansion*math.sqrt(math.log2(self.parent.visits) / self.visits)
-        UCB = (self.tot_reward / self.visits) - self.state.score + abs((self.parent.tot_reward / self.parent.visits) / 1.5) * math.sqrt(math.log2(self.parent.visits) / self.visits)
+        child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
+        par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)
+        exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
+
+        UCB = int(child_avg1 + par_avg1*exp_ind1)
         return UCB
 
     def is_leaf(self):
@@ -95,7 +97,7 @@ class Node:
             for y in [0, 1, 2, 3]:
                 temp_board.tiles[x][y] = self.state.tiles[x][y]
 
-        # todo: add a random tile here if the player is 1
+        # add a random tile if the player is 1
         if self.player_turn == 1:
             temp_board.add_new_tile()
 
@@ -287,13 +289,13 @@ def run(exploration_num, max_time, max_turns, max_sims, model):
 
 
 if __name__ == "__main__":
-    pr = cProfile.Profile()
-    pr.enable()
+    # pr = cProfile.Profile()
+    # pr.enable()
     exploration_num = 750  # todo: is this the best number?
     max_time = 30  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
     max_sims = 1000  # maximum number of DQN simulations performed
     model = keras.models.load_model("./trial-3002--3486.model")  # load the DQN model from the save file
     run(exploration_num, max_time, max_turns, max_sims, model)
-    pr.disable()
-    pr.print_stats()
+    # pr.disable()
+    # pr.print_stats()
