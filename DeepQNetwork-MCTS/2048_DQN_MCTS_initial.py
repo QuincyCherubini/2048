@@ -13,6 +13,8 @@ from keras.layers.core import Activation, Dropout, Flatten, Dense
 from keras import initializers
 from keras.layers.advanced_activations import LeakyReLU
 from MCTS import Node
+from MCTS import take_next_step
+from MCTS import expand_node
 
 
 class DQN:
@@ -22,10 +24,10 @@ class DQN:
         self.board = board
         self.state_shape = [1, 160]
         self.gamma = 0.995
-        self.epsilon = 0.25
+        self.epsilon = 0.99
         self.epsilon_min = 0.02
         self.epsilon_decay = 0.99995
-        self.learning_rate = 0.005
+        self.learning_rate = 0.001
         self.tau = 0.125
         self.exploration_num = exploration_num
         self.max_time = max_time
@@ -35,7 +37,8 @@ class DQN:
 
     def create_model(self):
         model = Sequential()
-        model.add(Dense(85, input_dim=self.state_shape[1]))
+        model.add(Dense(160, input_dim=self.state_shape[1]))
+        model.add(Dense(160))
         model.add(Dense(4))  # Action space for 2048
         model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
         return model
@@ -69,16 +72,24 @@ class DQN:
         self.epsilon *= self.epsilon_decay
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-        # return a simulated move
+        # return a simulated or random move
         if np.random.random() < self.epsilon:
-            # create a new node based on the board
-            test_node = Node(self.board, 1, 9, None, self.exploration_num)
+            # run a MCTS move if at min epsilon
+            if self.epsilon == self.epsilon_min:
+                print("MCTS random move")
+                # create a new node based on the board
+                test_node = Node(self.board, 1, 9, None, self.exploration_num)
 
-            # expand the tree while I have time
-            time_start = time.time()
-            expand_node(test_node, time_start, self.max_time)
+                # expand the tree while I have time
+                time_start = time.time()
+                expand_node(test_node, time_start, self.max_time)
 
-            action = test_node.get_best_move()
+                action = test_node.get_best_move()
+            # otherwise return a random move
+            else:
+                action = random.getrandbits(2)
+                while not self.board.is_valid_move(action):
+                    action = (action + 1) % 4
 
         else:
             output_array = self.model.predict(state)[0]
@@ -93,51 +104,6 @@ class DQN:
     def save_model(self, fn, target_n):
         self.model.save(fn)
         self.target_model.save(target_n)
-
-
-# Monte Carlo Tree Search functions
-def take_next_step(test_node):
-
-    # if the test_node is a leaf expand it
-    if test_node.is_leaf():
-        test_node.expand()
-
-    # check if any of the children are unexplored, if so explore them
-    all_children_checked = True
-    for child in test_node.children:
-        if child.is_unchecked():
-            child.rollout()
-            all_children_checked = False
-
-    if all_children_checked:
-        if not test_node.is_terminal_node():
-            to_exp_child_ind = test_node.get_max_child_UCB()
-            to_exp_child = test_node.children[to_exp_child_ind]
-            take_next_step(to_exp_child)
-        else:
-            test_node.rollout()
-
-
-def expand_node(test_node, time_start, max_time):
-
-    # if the test_node is a leaf expand it
-    if test_node.is_leaf():
-        test_node.expand()
-
-    # check if any of the children are unexplored, if so explore them
-    for child in test_node.children:
-        if child.is_unchecked():
-            child.rollout()
-
-    while time.time() - time_start <= max_time:
-
-        to_exp_child_ind = test_node.get_max_child_UCB()
-
-        if to_exp_child_ind != 99999:
-            to_exp_child = test_node.children[to_exp_child_ind]
-            take_next_step(to_exp_child)
-        else:
-            break
 
 
 # run MCTS simulations with a 1 second time on each and log the states
@@ -203,7 +169,7 @@ def run(episodes, exploration_num, max_time):
     test_state = test_state.reshape(1, dqn_agent.state_shape[1])
 
     # run the initial 2 MCTS simulations
-    run_initial_MCTS(my_board, dqn_agent, exploration_num, max_time)
+    # run_initial_MCTS(my_board, dqn_agent, exploration_num, max_time)
 
     max_score = 0
     total_score = 0
@@ -249,8 +215,8 @@ def run(episodes, exploration_num, max_time):
         if episode % 100 == 2:
             # print("output layer bias: {}".format(dqn_agent.model.layers[3].get_weights()[1]))
             # show_game(dqn_agent)
-            dqn_agent.save_model("obj/10/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
-                                 "obj/10/trial-{}-target.model".format(episode))
+            dqn_agent.save_model("obj/12/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
+                                 "obj/12/trial-{}-target.model".format(episode))
 
 
 def create_state(board):

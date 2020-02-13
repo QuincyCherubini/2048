@@ -33,7 +33,7 @@ class DQN:
     def create_model(self):
         model = Sequential()
         model.add(Dense(160, input_dim=self.state_shape[1]))
-        model.add(Dense(80))
+        model.add(Dense(160))
         model.add(Dense(4))  # Action space for 2048
         model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
         return model
@@ -140,8 +140,8 @@ def run(episodes):
         if episode % 100 == 2:
             # print("output layer bias: {}".format(dqn_agent.model.layers[3].get_weights()[1]))
             show_game(dqn_agent)
-            dqn_agent.save_model("obj/13/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
-                                 "obj/13/trial-{}-target.model".format(episode))
+            dqn_agent.save_model("obj/12/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
+                                 "obj/12/trial-{}-target.model".format(episode))
 
 
 def create_state(board):

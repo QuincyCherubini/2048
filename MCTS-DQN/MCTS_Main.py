@@ -11,20 +11,24 @@ from DQN import create_state
 
 class Node:
 
-    def __init__(self, state, player_turn, DQN, move=9, parent=None, expansion=2):
+    def __init__(self, state, player_turn, DQN, move=9, parent=None):
 
         self.state = state  # this is a board
         self.parent = parent  # this is a node
         self.children = []  # this is a list of nodes
         self.visits = 0
         self.tot_reward = 0
-        self.expansion = expansion
         self.player_turn = player_turn
         self.move = move
         self.DQN = DQN
 
     def get_UCB(self):
-        child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
+        # player 1 has a negative score so board score needs to be added instead of subtracted
+        if self.player_turn == 1:
+            child_avg1 = int(self.tot_reward / self.visits + self.parent.state.score)
+        else:
+            child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
+
         par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)
         exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
 
@@ -97,24 +101,33 @@ class Node:
             for y in [0, 1, 2, 3]:
                 temp_board.tiles[x][y] = self.state.tiles[x][y]
 
-        # add a random tile if the player is 1
-        if self.player_turn == 1:
+        # add a random tile if the player is 2 and then play rest of game
+        if self.player_turn == 2:
             temp_board.add_new_tile()
 
-        while True:
+            while not temp_board.game_is_over():
 
-            # if the game is over exit the loop and back prop
-            if temp_board.game_is_over():
-                self.back_prop(temp_board.score)
-                break
+                # call the DQN and perform the best move
+                cur_state = create_state(temp_board)
+                cur_state = cur_state.reshape(1, self.DQN.state_shape[1])
+                move = self.DQN.act(cur_state)
 
-            # otherwise call the DQN and perform the best move
+                temp_board.move_tiles(move)
+                temp_board.add_new_tile()
+
+            # back prop the result of the game
+            self.back_prop(temp_board.score)
+
+        # if the player is 1
+        elif self.player_turn == 1:
+
             cur_state = create_state(temp_board)
             cur_state = cur_state.reshape(1, self.DQN.state_shape[1])
-            move = self.DQN.act(cur_state)
+            predictions = self.DQN.model.predict(cur_state)[0]
 
-            temp_board.move_tiles(move)
-            temp_board.add_new_tile()
+            score = max(predictions)
+            self.back_prop(score)
+
 
     def expand(self):
 
@@ -133,7 +146,7 @@ class Node:
                             temp_board.tiles[x][y] = test_board.tiles[x][y]
                     temp_board.move_tiles(move)
 
-                    child = Node(temp_board, 2, self.DQN, move, self, self.expansion)
+                    child = Node(temp_board, 2, self.DQN, move, self)
                     self.children.append(child)
 
         # add random tile to each spot
@@ -158,8 +171,8 @@ class Node:
                         temp_board_2.tiles[x][y] = 2
                         temp_board_4.tiles[x][y] = 4
 
-                        child_2 = Node(temp_board_2, 1, self.DQN, 9, self, self.expansion)
-                        child_4 = Node(temp_board_4, 1, self.DQN, 9, self, self.expansion)
+                        child_2 = Node(temp_board_2, 1, self.DQN, 9, self)
+                        child_4 = Node(temp_board_4, 1, self.DQN, 9, self)
 
                         self.children.append(child_2)
                         self.children.append(child_4)
@@ -235,7 +248,7 @@ def expand_node(test_node, time_start, max_time, max_sims):
             break
 
 
-def run(exploration_num, max_time, max_turns, max_sims, model):
+def run(max_time, max_turns, max_sims, model):
 
     # Create a new board and display it
     test_board = board()
@@ -248,9 +261,8 @@ def run(exploration_num, max_time, max_turns, max_sims, model):
     turns = 0
     while not test_board.game_is_over() and turns < max_turns:
 
-        # get node
         # create a new node based on the board
-        test_node = Node(test_board, 1, DQN_agent, 9, None, exploration_num)
+        test_node = Node(test_board, 1, DQN_agent, 9, None)
 
         # expand the tree while I have time
         time_start = time.time()
@@ -273,7 +285,6 @@ def run(exploration_num, max_time, max_turns, max_sims, model):
         cur_state = cur_state.reshape(1, DQN_agent.state_shape[1])
         prediction = DQN_agent.model.predict(cur_state)[0]
         print("prediction: {}".format(prediction))
-        # move = self.DQN.act(cur_state)
 
         print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
@@ -291,11 +302,10 @@ def run(exploration_num, max_time, max_turns, max_sims, model):
 if __name__ == "__main__":
     # pr = cProfile.Profile()
     # pr.enable()
-    exploration_num = 750  # todo: is this the best number?
-    max_time = 30  # in seconds
+    max_time = 20  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
     max_sims = 1000  # maximum number of DQN simulations performed
     model = keras.models.load_model("./trial-3002--3486.model")  # load the DQN model from the save file
-    run(exploration_num, max_time, max_turns, max_sims, model)
+    run( max_time, max_turns, max_sims, model)
     # pr.disable()
     # pr.print_stats()

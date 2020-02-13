@@ -18,11 +18,12 @@ class Node:
         self.move = move
 
     def get_UCB(self):
-        child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
-        par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)
+
+        child_avg1 = self.tot_reward / self.visits
+        par_avg1 = abs(self.parent.tot_reward / self.parent.visits)/4
         exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
 
-        UCB = int(child_avg1 + par_avg1*exp_ind1)
+        UCB = child_avg1 + par_avg1*exp_ind1
         return UCB
 
     def is_leaf(self):
@@ -82,7 +83,7 @@ class Node:
         if self.parent is not None:
             self.parent.back_prop(score)
 
-    def rollout(self):
+    def rollout(self, cur_score):
 
         # test_board = self.state
         temp_board = board()
@@ -91,24 +92,29 @@ class Node:
             for y in [0, 1, 2, 3]:
                 temp_board.tiles[x][y] = self.state.tiles[x][y]
 
-        # add a random tile if the player is 1
-        if self.player_turn == 1:
+        # if the player is 2 select a random move for them (adding a random tile)
+        if self.player_turn == 2:
             temp_board.add_new_tile()
 
-        while True:
+        turn_count = 0
+        # if temp_board.game_is_over():
+        #     print("uh oh")
+        while not temp_board.game_is_over():
 
-            # if the game is over exit the loop and back prop
-            if temp_board.game_is_over():  # or turn_count == 30:
-                self.back_prop(temp_board.score)
-                break
-
-            # otherwise perform a random legal move
+            # perform a random legal move
             move = random.getrandbits(2)
             while not temp_board.is_valid_move(move):
                 move = (move + 1) % 4
 
             temp_board.move_tiles(move)
             temp_board.add_new_tile()
+            turn_count += 1
+        # print("turn_count: {} score: {}".format(turn_count, temp_board.score))
+
+        # back prop the result of the game
+        # print((temp_board.score - start_score))
+        # self.back_prop((temp_board.score - cur_score)/(turn_count+1))
+        self.back_prop(turn_count)
 
     def expand(self):
 
@@ -177,7 +183,7 @@ class Node:
     def is_terminal_node(self):
         return self.state.game_is_over()
 
-def take_next_step(test_node):
+def take_next_step(test_node, cur_score):
 
     # if the test_node is a leaf expand it
     if test_node.is_leaf():
@@ -187,19 +193,19 @@ def take_next_step(test_node):
     all_children_checked = True
     for child in test_node.children:
         if child.is_unchecked():
-            child.rollout()
+            child.rollout(cur_score)
             all_children_checked = False
 
     if all_children_checked:
         if not test_node.is_terminal_node():
             to_exp_child_ind = test_node.get_max_child_UCB()
             to_exp_child = test_node.children[to_exp_child_ind]
-            take_next_step(to_exp_child)
+            take_next_step(to_exp_child, cur_score)
         else:
-            test_node.rollout()
+            test_node.rollout(cur_score)
 
 
-def expand_node(test_node, time_start, max_time, max_sims):
+def expand_node(test_node, time_start, max_time, max_sims, cur_score):
 
     # if the test_node is a leaf expand it
     if test_node.is_leaf():
@@ -208,7 +214,7 @@ def expand_node(test_node, time_start, max_time, max_sims):
     # check if any of the children are unexplored, if so explore them
     for child in test_node.children:
         if child.is_unchecked():
-            child.rollout()
+            child.rollout(cur_score)
 
     while time.time() - time_start <= max_time and test_node.visits < max_sims:
 
@@ -216,11 +222,9 @@ def expand_node(test_node, time_start, max_time, max_sims):
 
         if to_exp_child_ind != 99999:
             to_exp_child = test_node.children[to_exp_child_ind]
-            take_next_step(to_exp_child)
+            take_next_step(to_exp_child, cur_score)
         else:
             break
-
-    # print(sims)
 
 
 def run(max_time, max_turns, max_sims):
@@ -235,9 +239,11 @@ def run(max_time, max_turns, max_sims):
         # create a new node based on the board
         test_node = Node(test_board, 1, 9, None)
 
+        cur_score = test_board.score
+
         # expand the tree while I have time
         time_start = time.time()
-        expand_node(test_node, time_start, max_time, max_sims)
+        expand_node(test_node, time_start, max_time, max_sims, cur_score)
 
         # pick the next best move
         next_move = test_node.get_best_move()
@@ -254,7 +260,8 @@ def run(max_time, max_turns, max_sims):
         print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
         for child in test_node.children:
-            print("child: {} visits: {} avg: {} UCB_act: {}".format(child.move, child.visits, int(child.tot_reward/child.visits - test_board.score), int(child.get_UCB())))
+            print("child: {} visits: {} avg: {} UCB: {}".format(child.move, child.visits, int(child.tot_reward/child.visits),
+                                                                int(child.get_UCB())))
 
         # Make the move
         test_board.move_tiles(next_move)
@@ -266,9 +273,9 @@ def run(max_time, max_turns, max_sims):
 if __name__ == "__main__":
     # pr = cProfile.Profile()
     # pr.enable()
-    max_time = .5  # in seconds
+    max_time = 2  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
-    max_sims = 750  # cut the number of simulations when a bench mark is reached
+    max_sims = 3000  # cut the number of simulations when a bench mark is reached
     run(max_time, max_turns, max_sims)
     # pr.disable()
     # pr.print_stats()
