@@ -19,18 +19,18 @@ from MCTS import expand_node
 
 class DQN:
     # my board is the environment
-    def __init__(self, board, exploration_num, max_time):
+    def __init__(self, board, max_time, max_sims):
         self.memory = deque(maxlen=50000)
         self.board = board
         self.state_shape = [1, 160]
         self.gamma = 0.995
-        self.epsilon = 0.99
+        self.epsilon = 0.02  # 0.99
         self.epsilon_min = 0.02
         self.epsilon_decay = 0.99995
         self.learning_rate = 0.001
         self.tau = 0.125
-        self.exploration_num = exploration_num
         self.max_time = max_time
+        self.max_sims = max_sims
 
         self.model = self.create_model()
         self.target_model = self.create_model()
@@ -77,11 +77,11 @@ class DQN:
             # run a MCTS move if at min epsilon
             if self.epsilon == self.epsilon_min:
                 # create a new node based on the board
-                test_node = Node(self.board, 1, 9, None, self.exploration_num)
+                test_node = Node(self.board, 1, 9, None)
 
                 # expand the tree while I have time
                 time_start = time.time()
-                expand_node(test_node, time_start, self.max_time)
+                expand_node(test_node, time_start, self.max_time, self.max_sims)
 
                 action = test_node.get_best_move()
             # otherwise return a random move
@@ -105,70 +105,12 @@ class DQN:
         self.target_model.save(target_n)
 
 
-# run MCTS simulations with a 1 second time on each and log the states
-def run_initial_MCTS(my_board, dqn_agent, exploration_num, max_time):
-
-    for _ in range(10):
-        # Create a new board and display it
-        my_board.reset()
-        my_board.display()
-
-        # create the current state object
-        cur_state = create_state(my_board)
-        cur_state = cur_state.reshape(1, dqn_agent.state_shape[1])
-
-        test_state = create_state(my_board)
-        test_state = cur_state.reshape(1, dqn_agent.state_shape[1])
-
-        turns = 0
-        while not my_board.game_is_over():
-
-            if turns % 100 == 99:
-                print("test prediction: {} score: {}".format(dqn_agent.model.predict(test_state)[0], my_board.score))
-
-            # create a new node based on the board
-            test_node = Node(my_board, 1, 9, None, exploration_num)
-
-            # expand the tree while I have time
-            time_start = time.time()
-            expand_node(test_node, time_start, max_time)
-
-            # pick the next best move
-            next_move = test_node.get_best_move()
-
-            # Make the move
-            cur_score = my_board.score
-            my_board.move_tiles(next_move)
-            my_board.add_new_tile()
-            # my_board.display()
-
-            # log the move data
-            reward = my_board.score - cur_score
-            new_state = create_state(my_board)
-            new_state = new_state.reshape(1, dqn_agent.state_shape[1])
-            done = my_board.game_is_over()
-            dqn_agent.remember(cur_state, next_move, reward, new_state, done)
-
-            # update the model
-            dqn_agent.replay()
-            dqn_agent.target_train()
-
-            # update the current state
-            cur_state = new_state
-
-            # tracker for output
-            turns += 1
-
-
-def run(episodes, exploration_num, max_time):
+def run(episodes, max_time, max_sims):
 
     my_board = board()
-    dqn_agent = DQN(my_board, exploration_num, max_time)
+    dqn_agent = DQN(my_board, max_time, max_sims)
     test_state = create_state(my_board)
     test_state = test_state.reshape(1, dqn_agent.state_shape[1])
-
-    # run the initial 2 MCTS simulations
-    # run_initial_MCTS(my_board, dqn_agent, exploration_num, max_time)
 
     max_score = 0
     total_score = 0
@@ -382,8 +324,8 @@ if __name__ == "__main__":
     # pr = cProfile.Profile()
     # pr.enable()
     episodes = 99999
-    exploration_num = 750
     max_time = 0.5  # in seconds
-    run(episodes, exploration_num, max_time)
+    max_sims = 2000
+    run(episodes, max_time, max_sims)
     # pr.disable()
     # pr.print_stats()

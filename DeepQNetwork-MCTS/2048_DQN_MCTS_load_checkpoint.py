@@ -12,27 +12,33 @@ from keras.optimizers import Adam
 from keras.layers.core import Activation, Dropout, Flatten, Dense
 from keras import initializers
 from keras.layers.advanced_activations import LeakyReLU
+from MCTS import Node
+from MCTS import take_next_step
+from MCTS import expand_node
 
 
 class DQN:
     # my board is the environment
-    def __init__(self, board):
-        self.memory = deque(maxlen=5000)
+    def __init__(self, board, max_time, max_sims):
+        self.memory = deque(maxlen=50000)
         self.board = board
         self.state_shape = [1, 160]
         self.gamma = 0.995
-        self.epsilon = 0.0002
-        self.epsilon_min = 0.0002
+        self.epsilon = 0.02
+        self.epsilon_min = 0.02
         self.epsilon_decay = 0.99995
         self.learning_rate = 0.001
         self.tau = 0.125
+        self.max_time = max_time
+        self.max_sims = max_sims
 
         self.model = self.create_model()
         self.target_model = self.create_model()
 
     def create_model(self):
         model = Sequential()
-        model.add(Dense(85, input_dim=self.state_shape[1]))
+        model.add(Dense(160, input_dim=self.state_shape[1]))
+        model.add(Dense(160))
         model.add(Dense(4))  # Action space for 2048
         model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
         return model
@@ -42,14 +48,12 @@ class DQN:
 
     def replay(self):
         batch_size = 20
-        if len(self.memory) < batch_size:
+        if len(self.memory) < 50:
             return
-
         samples = random.sample(self.memory, batch_size)
         for sample in samples:
             state, action, reward, new_state, done = sample
             target = self.target_model.predict(state)
-            # done is a boolean
             if done:
                 target[0][action] = reward
             else:
@@ -68,11 +72,24 @@ class DQN:
         self.epsilon *= self.epsilon_decay
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-        # return an random legal move
+        # return a simulated or random move
         if np.random.random() < self.epsilon:
-            action = random.getrandbits(2)
-            while not self.board.is_valid_move(action):
-                action = (action + 1) % 4
+            # run a MCTS move if at min epsilon
+            if self.epsilon == self.epsilon_min:
+                # create a new node based on the board
+                test_node = Node(self.board, 1, 9, None)
+
+                # expand the tree while I have time
+                time_start = time.time()
+                expand_node(test_node, time_start, self.max_time, self.max_sims)
+
+                action = test_node.get_best_move()
+            # otherwise return a random move
+            else:
+                action = random.getrandbits(2)
+                while not self.board.is_valid_move(action):
+                    action = (action + 1) % 4
+
         else:
             output_array = self.model.predict(state)[0]
             action = np.argmax(output_array)
@@ -80,8 +97,6 @@ class DQN:
             while not self.board.is_valid_move(action):
                 output_array[action] = -999999999999999
                 action = np.argmax(output_array)
-                if output_array[action] == -999999999999999:
-                    print("ERROR!!!!!!!!!! output array {}".format(output_array))
 
         return action
 
@@ -90,10 +105,10 @@ class DQN:
         self.target_model.save(target_n)
 
 
-def run(model, target, episode_start, episodes):
+def run(model, target, episodes, episode_start, max_time, max_sims):
 
     my_board = board()
-    dqn_agent = DQN(my_board)
+    dqn_agent = DQN(my_board, max_time, max_sims)
     dqn_agent.model = model
     dqn_agent.target_model = target
 
@@ -103,9 +118,8 @@ def run(model, target, episode_start, episodes):
     max_score = 0
     total_score = 0
 
-    ep_count = 1
-
     for episode in range(episode_start, episodes):
+
         my_board.reset()
         cur_state = create_state(my_board)
         cur_state = cur_state.reshape(1, dqn_agent.state_shape[1])
@@ -140,17 +154,13 @@ def run(model, target, episode_start, episodes):
             max_score = my_board.score
 
         print("episode: {} score: {} max_score: {} avg_score: {} epsilon: {}".format(episode, my_board.score, max_score,
-                    int(total_score/ep_count), dqn_agent.epsilon))
-
-        ep_count += 1
+                    int(total_score/(episode - episode_start + 1)), dqn_agent.epsilon))
 
         if episode % 100 == 2:
             # print("output layer bias: {}".format(dqn_agent.model.layers[3].get_weights()[1]))
-            show_game(dqn_agent)
-            dqn_agent.save_model("obj/11/trial-{}--{}.model".format(episode, str(int(total_score / 100))),
-                                 "obj/11/trial-{}-target.model".format(episode))
-            total_score = 0
-            ep_count = 1
+            # show_game(dqn_agent)
+            dqn_agent.save_model("obj/13/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
+                                 "obj/13/trial-{}-target.model".format(episode))
 
 
 def create_state(board):
@@ -316,9 +326,11 @@ def show_game(dqn_agent):
         turns += 1
 
 if __name__ == "__main__":
-    model = keras.models.load_model("./obj/11/trial-1302--2795.model")
-    target = keras.models.load_model("./obj/11/trial-1302-target.model")
-    episode_start = 1303
+    model = keras.models.load_model("./trial-3002--3612.model")
+    target = keras.models.load_model("./trial-3002-target.model")
     episodes = 99999
-    run(model, target, episode_start, episodes)
+    episode_start = 3003
+    max_time = 0.5  # in seconds
+    max_sims = 2000
+    run(model, target, episodes, episode_start, max_time, max_sims)
 

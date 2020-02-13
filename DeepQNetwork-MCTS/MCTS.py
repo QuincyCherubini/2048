@@ -5,22 +5,30 @@ import time
 import random
 import cProfile
 
-
 class Node:
 
-    def __init__(self, state, player_turn, move=9, parent=None, expansion=2):
+    def __init__(self, state, player_turn, move=9, parent=None):
 
         self.state = state  # this is a board
         self.parent = parent  # this is a node
         self.children = []  # this is a list of nodes
         self.visits = 0
         self.tot_reward = 0
-        self.expansion = expansion
         self.player_turn = player_turn
         self.move = move
 
     def get_UCB(self):
-        UCB = self.tot_reward/self.visits + self.expansion*math.sqrt(math.log2(self.parent.visits) / self.visits)
+
+        # player 1 has a negative score so board score needs to be added instead of subtracted
+        if self.player_turn == 1:
+            child_avg1 = int(self.tot_reward / self.visits + self.parent.state.score)
+        else:
+            child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
+
+        par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)/4
+        exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
+
+        UCB = child_avg1 + par_avg1*exp_ind1
         return UCB
 
     def is_leaf(self):
@@ -89,20 +97,24 @@ class Node:
             for y in [0, 1, 2, 3]:
                 temp_board.tiles[x][y] = self.state.tiles[x][y]
 
-        while True:
+        # if the player is 2 select a random move for them (adding a random tile)
+        if self.player_turn == 2:
+            temp_board.add_new_tile()
 
-            # if the game is over exit the loop and back prop
-            if temp_board.game_is_over():  # or turn_count == 30:
-                self.back_prop(temp_board.score)
-                break
+        turn_count = 0
+        while not temp_board.game_is_over():
 
-            # otherwise perform a random legal move
+            # perform a random legal move
             move = random.getrandbits(2)
             while not temp_board.is_valid_move(move):
                 move = (move + 1) % 4
 
             temp_board.move_tiles(move)
             temp_board.add_new_tile()
+            turn_count += 1
+
+        # back prop the result of the game
+        self.back_prop(temp_board.score)
 
     def expand(self):
 
@@ -121,7 +133,7 @@ class Node:
                             temp_board.tiles[x][y] = test_board.tiles[x][y]
                     temp_board.move_tiles(move)
 
-                    child = Node(temp_board, 2, move, self, self.expansion)
+                    child = Node(temp_board, 2, move, self)
                     self.children.append(child)
 
         # add random tile to each spot
@@ -146,8 +158,8 @@ class Node:
                         temp_board_2.tiles[x][y] = 2
                         temp_board_4.tiles[x][y] = 4
 
-                        child_2 = Node(temp_board_2, 1, 9, self, self.expansion)
-                        child_4 = Node(temp_board_4, 1, 9, self, self.expansion)
+                        child_2 = Node(temp_board_2, 1, 9, self)
+                        child_4 = Node(temp_board_4, 1, 9, self)
 
                         self.children.append(child_2)
                         self.children.append(child_4)
@@ -193,7 +205,7 @@ def take_next_step(test_node):
             test_node.rollout()
 
 
-def expand_node(test_node, time_start, max_time):
+def expand_node(test_node, time_start, max_time, max_sims):
 
     # if the test_node is a leaf expand it
     if test_node.is_leaf():
@@ -204,7 +216,7 @@ def expand_node(test_node, time_start, max_time):
         if child.is_unchecked():
             child.rollout()
 
-    while time.time() - time_start <= max_time:
+    while time.time() - time_start <= max_time and test_node.visits < max_sims:
 
         to_exp_child_ind = test_node.get_max_child_UCB()
 
@@ -215,7 +227,7 @@ def expand_node(test_node, time_start, max_time):
             break
 
 
-def run(exploration_num, max_time, max_turns):
+def run(max_time, max_turns, max_sims):
 
     # Create a new board and display it
     test_board = board()
@@ -225,11 +237,13 @@ def run(exploration_num, max_time, max_turns):
     while not test_board.game_is_over() and turns < max_turns:
 
         # create a new node based on the board
-        test_node = Node(test_board, 1, 9, None, exploration_num)
+        test_node = Node(test_board, 1, 9, None)
+
+        cur_score = test_board.score
 
         # expand the tree while I have time
         time_start = time.time()
-        expand_node(test_node, time_start, max_time)
+        expand_node(test_node, time_start, max_time, max_sims, cur_score)
 
         # pick the next best move
         next_move = test_node.get_best_move()
@@ -243,10 +257,11 @@ def run(exploration_num, max_time, max_turns):
         elif next_move == 3:
             move = "up"
 
-        print(" turn: {} action: {} move: {}".format(turns, next_move, move))
+        print(" turn: {} action: {} move: {} sims: {}".format(turns, next_move, move, test_node.visits))
 
         for child in test_node.children:
-            print("child {} visits: {} total: {} avg: {}".format(child.move, child.visits, child.tot_reward, child.tot_reward/child.visits))
+            print("child: {} visits: {} avg: {} UCB: {}".format(child.move, child.visits, int(child.tot_reward/child.visits),
+                                                                int(child.get_UCB())))
 
         # Make the move
         test_board.move_tiles(next_move)
@@ -256,11 +271,11 @@ def run(exploration_num, max_time, max_turns):
 
 
 if __name__ == "__main__":
-    pr = cProfile.Profile()
-    pr.enable()
-    exploration_num = 750
-    max_time = 1  # in seconds
-    max_turns = 9999999
-    run(exploration_num, max_time, max_turns)
-    pr.disable()
-    pr.print_stats()
+    # pr = cProfile.Profile()
+    # pr.enable()
+    max_time = .5  # in seconds
+    max_turns = 9999999  # this is used for Testing purposes only
+    max_sims = 1000  # cut the number of simulations when a bench mark is reached
+    run(max_time, max_turns, max_sims)
+    # pr.disable()
+    # pr.print_stats()
