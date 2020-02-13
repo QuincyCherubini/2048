@@ -76,7 +76,6 @@ class DQN:
         if np.random.random() < self.epsilon:
             # run a MCTS move if at min epsilon
             if self.epsilon == self.epsilon_min:
-                print("MCTS random move")
                 # create a new node based on the board
                 test_node = Node(self.board, 1, 9, None, self.exploration_num)
 

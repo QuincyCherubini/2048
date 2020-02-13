@@ -19,8 +19,13 @@ class Node:
 
     def get_UCB(self):
 
-        child_avg1 = self.tot_reward / self.visits
-        par_avg1 = abs(self.parent.tot_reward / self.parent.visits)/4
+        # player 1 has a negative score so board score needs to be added instead of subtracted
+        if self.player_turn == 1:
+            child_avg1 = int(self.tot_reward / self.visits + self.parent.state.score)
+        else:
+            child_avg1 = int(self.tot_reward / self.visits - self.parent.state.score)
+
+        par_avg1 = int(abs(self.parent.tot_reward / self.parent.visits) - self.parent.state.score)/4
         exp_ind1 = math.sqrt(math.log2(self.parent.visits) / self.visits)
 
         UCB = child_avg1 + par_avg1*exp_ind1
@@ -97,8 +102,6 @@ class Node:
             temp_board.add_new_tile()
 
         turn_count = 0
-        # if temp_board.game_is_over():
-        #     print("uh oh")
         while not temp_board.game_is_over():
 
             # perform a random legal move
@@ -109,12 +112,9 @@ class Node:
             temp_board.move_tiles(move)
             temp_board.add_new_tile()
             turn_count += 1
-        # print("turn_count: {} score: {}".format(turn_count, temp_board.score))
 
         # back prop the result of the game
-        # print((temp_board.score - start_score))
-        # self.back_prop((temp_board.score - cur_score)/(turn_count+1))
-        self.back_prop(turn_count)
+        self.back_prop(temp_board.score)
 
     def expand(self):
 
@@ -273,9 +273,9 @@ def run(max_time, max_turns, max_sims):
 if __name__ == "__main__":
     # pr = cProfile.Profile()
     # pr.enable()
-    max_time = 2  # in seconds
+    max_time = .5  # in seconds
     max_turns = 9999999  # this is used for Testing purposes only
-    max_sims = 3000  # cut the number of simulations when a bench mark is reached
+    max_sims = 1000  # cut the number of simulations when a bench mark is reached
     run(max_time, max_turns, max_sims)
     # pr.disable()
     # pr.print_stats()
