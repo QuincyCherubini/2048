@@ -12,33 +12,29 @@ from keras.optimizers import Adam
 from keras.layers.core import Activation, Dropout, Flatten, Dense
 from keras import initializers
 from keras.layers.advanced_activations import LeakyReLU
-from MCTS import Node
-from MCTS import take_next_step
-from MCTS import expand_node
+from keras import regularizers
 
 
 class DQN:
     # my board is the environment
-    def __init__(self, board, max_time, max_sims):
-        self.memory = deque(maxlen=50000)
+    def __init__(self, board):
+        self.memory = deque(maxlen=5000)
         self.board = board
-        self.state_shape = [1, 160]
+        self.state_shape = [1, 352]
         self.gamma = 0.995
-        self.epsilon = 0.02
-        self.epsilon_min = 0.02
+        self.epsilon = 1
+        self.epsilon_min = 0.005
         self.epsilon_decay = 0.99995
-        self.learning_rate = 0.001
+        self.learning_rate = 0.0001
         self.tau = 0.125
-        self.max_time = max_time
-        self.max_sims = max_sims
 
         self.model = self.create_model()
         self.target_model = self.create_model()
 
     def create_model(self):
         model = Sequential()
-        model.add(Dense(160, input_dim=self.state_shape[1]))
-        model.add(Dense(160))
+        model.add(Dense(352, input_dim=self.state_shape[1], kernel_regularizer=regularizers.l1(0.01)))
+        model.add(LeakyReLU(alpha=0.05))
         model.add(Dense(4))  # Action space for 2048
         model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
         return model
@@ -47,13 +43,15 @@ class DQN:
         self.memory.append([state, action, reward, new_state, done])
 
     def replay(self):
-        batch_size = 20
-        if len(self.memory) < 50:
+        batch_size = 50
+        if len(self.memory) < 500:
             return
+
         samples = random.sample(self.memory, batch_size)
         for sample in samples:
             state, action, reward, new_state, done = sample
             target = self.target_model.predict(state)
+            # done is a boolean
             if done:
                 target[0][action] = reward
             else:
@@ -72,24 +70,11 @@ class DQN:
         self.epsilon *= self.epsilon_decay
         self.epsilon = max(self.epsilon_min, self.epsilon)
 
-        # return a simulated or random move
+        # return an random legal move
         if np.random.random() < self.epsilon:
-            # run a MCTS move if at min epsilon
-            if self.epsilon == self.epsilon_min:
-                # create a new node based on the board
-                test_node = Node(self.board, 1, 9, None)
-
-                # expand the tree while I have time
-                time_start = time.time()
-                expand_node(test_node, time_start, self.max_time, self.max_sims)
-
-                action = test_node.get_best_move()
-            # otherwise return a random move
-            else:
-                action = random.getrandbits(2)
-                while not self.board.is_valid_move(action):
-                    action = (action + 1) % 4
-
+            action = random.getrandbits(2)
+            while not self.board.is_valid_move(action):
+                action = (action + 1) % 4
         else:
             output_array = self.model.predict(state)[0]
             action = np.argmax(output_array)
@@ -105,20 +90,17 @@ class DQN:
         self.target_model.save(target_n)
 
 
-def run(model, target, episodes, episode_start, max_time, max_sims):
+def run(episodes):
 
     my_board = board()
-    dqn_agent = DQN(my_board, max_time, max_sims)
-    dqn_agent.model = model
-    dqn_agent.target_model = target
-
+    dqn_agent = DQN(my_board)
     test_state = create_state(my_board)
     test_state = test_state.reshape(1, dqn_agent.state_shape[1])
 
     max_score = 0
     total_score = 0
 
-    for episode in range(episode_start, episodes):
+    for episode in range(episodes):
 
         my_board.reset()
         cur_state = create_state(my_board)
@@ -135,49 +117,127 @@ def run(model, target, episodes, episode_start, max_time, max_sims):
             my_board.move_tiles(action)
             my_board.add_new_tile()
 
+            # set the reward then normalize it with min-max (0 is min and assume a max of 2048)
             reward = my_board.score - cur_score
+            reward_norm = reward/2048
+
             new_state = create_state(my_board)
             new_state = new_state.reshape(1, dqn_agent.state_shape[1])
             done = my_board.game_is_over()
 
             # log this action
-            dqn_agent.remember(cur_state, action, reward, new_state, done)
+            dqn_agent.remember(cur_state, action, reward_norm, new_state, done)
 
             cur_state = new_state
 
             # update the model
             dqn_agent.replay()
-            dqn_agent.target_train()
+
+        # udpate the target network
+        dqn_agent.target_train()
 
         total_score += my_board.score
         if my_board.score > max_score:
             max_score = my_board.score
 
         print("episode: {} score: {} max_score: {} avg_score: {} epsilon: {}".format(episode, my_board.score, max_score,
-                    int(total_score/(episode - episode_start + 1)), dqn_agent.epsilon))
+                    int(total_score/(episode + 1)), dqn_agent.epsilon))
 
         if episode % 100 == 2:
             # print("output layer bias: {}".format(dqn_agent.model.layers[3].get_weights()[1]))
             # show_game(dqn_agent)
-            dqn_agent.save_model("obj/13/trial-{}--{}.model".format(episode, str(int(total_score/(episode - episode_start + 1)))),
-                                 "obj/13/trial-{}-target.model".format(episode))
+            dqn_agent.save_model("obj/16/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
+                                 "obj/16/trial-{}-target.model".format(episode))
 
 
+# will treat each value as a different piece type with a binary flag
 def create_state(board):
 
     output = []
 
-    # give the log base 2 of the board
     for x in range(0, 4):
         for y in range(0, 4):
-            # track the value of the tile
-            if board.tiles[x][y] == 0:
-                output.append(0)
-            else:
-                output.append(math.log(board.tiles[x][y], 2))
 
-            # track if the tile is empty
+            # track if the tile is 0
             if board.tiles[x][y] == 0:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 2
+            if board.tiles[x][y] == 2:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 4
+            if board.tiles[x][y] == 4:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 8
+            if board.tiles[x][y] == 8:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 16
+            if board.tiles[x][y] == 16:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 32
+            if board.tiles[x][y] == 32:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 64
+            if board.tiles[x][y] == 64:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 128
+            if board.tiles[x][y] == 128:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 256
+            if board.tiles[x][y] == 256:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 512
+            if board.tiles[x][y] == 512:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 1024
+            if board.tiles[x][y] == 1024:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 2048
+            if board.tiles[x][y] == 2048:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is 4096
+            if board.tiles[x][y] == 4096:
+                output.append(1)
+            else:
+                output.append(0)
+
+            # track if the tile is > 4096
+            if board.tiles[x][y] > 4096:
                 output.append(1)
             else:
                 output.append(0)
@@ -282,7 +342,6 @@ def create_state(board):
             else:
                 output.append(0)
 
-    # todo: add is next to 2x square (left/up/right/down)
     output = np.array(output)
     return output
 
@@ -304,8 +363,6 @@ def show_game(dqn_agent):
         while not new_board.is_valid_move(action):
             output_array[action] = -999999999999999
             action = np.argmax(output_array)
-            if output_array[action] == -999999999999999:
-                print("ERROR!!!!!!!!!! output array {}".format(output_array))
 
         if action == 0:
             move = "left"
@@ -316,7 +373,7 @@ def show_game(dqn_agent):
         elif action == 3:
             move = "up"
 
-        print(" turn: {} action: {} move: {} arrary: {} state: {}".format(turns, action, move, output_array, state))
+        print(" turn: {} action: {} move: {} arrary: {}".format(turns, action, move, output_array))
 
         new_board.move_tiles(action)
         new_board.add_new_tile()
@@ -326,11 +383,9 @@ def show_game(dqn_agent):
         turns += 1
 
 if __name__ == "__main__":
-    model = keras.models.load_model("./trial-3002--3612.model")
-    target = keras.models.load_model("./trial-3002-target.model")
+    # pr = cProfile.Profile()
+    # pr.enable()
     episodes = 99999
-    episode_start = 3003
-    max_time = 0.5  # in seconds
-    max_sims = 2000
-    run(model, target, episodes, episode_start, max_time, max_sims)
-
+    run(episodes)
+    # pr.disable()
+    # pr.print_stats()

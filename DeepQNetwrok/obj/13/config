@@ -1,7 +1,0 @@
-    def create_model(self):
-        model = Sequential()
-        model.add(Dense(160, input_dim=self.state_shape[1]))
-	model.add(Dense(80))
-        model.add(Dense(4))  # Action space for 2048
-        model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
-        return model

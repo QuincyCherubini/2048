@@ -24,7 +24,7 @@ class DQN:
         self.epsilon = 1
         self.epsilon_min = 0.002
         self.epsilon_decay = 0.99995
-        self.learning_rate = 0.001
+        self.learning_rate = 0.003
         self.tau = 0.125
 
         self.model = self.create_model()
@@ -33,7 +33,7 @@ class DQN:
     def create_model(self):
         model = Sequential()
         model.add(Dense(160, input_dim=self.state_shape[1]))
-        model.add(Dense(80))
+        # model.add(Dense(80))
         model.add(Dense(4))  # Action space for 2048
         model.compile(loss="mean_squared_error", optimizer=Adam(lr=self.learning_rate))
         return model
@@ -42,7 +42,7 @@ class DQN:
         self.memory.append([state, action, reward, new_state, done])
 
     def replay(self):
-        batch_size = 20
+        batch_size = 40
         if len(self.memory) < 500:
             return
 
@@ -116,13 +116,16 @@ def run(episodes):
             my_board.move_tiles(action)
             my_board.add_new_tile()
 
+            # set the reward then normalize it with min-max (0 is min and assume a max of 2048)
             reward = my_board.score - cur_score
+            reward_norm = reward/2048
+
             new_state = create_state(my_board)
             new_state = new_state.reshape(1, dqn_agent.state_shape[1])
             done = my_board.game_is_over()
 
             # log this action
-            dqn_agent.remember(cur_state, action, reward, new_state, done)
+            dqn_agent.remember(cur_state, action, reward_norm, new_state, done)
 
             cur_state = new_state
 
@@ -140,8 +143,8 @@ def run(episodes):
         if episode % 100 == 2:
             # print("output layer bias: {}".format(dqn_agent.model.layers[3].get_weights()[1]))
             show_game(dqn_agent)
-            dqn_agent.save_model("obj/13/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
-                                 "obj/13/trial-{}-target.model".format(episode))
+            dqn_agent.save_model("obj/18/trial-{}--{}.model".format(episode, str(int(total_score/(episode + 1)))),
+                                 "obj/18/trial-{}-target.model".format(episode))
 
 
 def create_state(board):
